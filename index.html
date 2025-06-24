@@ -890,17 +890,50 @@
         </div>
     </div>
 
+    <!-- Firebase -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-firestore-compat.min.js"></script>
+    
     <script>
+        // Configuration Firebase (vos vraies clés)
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhUMMcgXyWYGWVdp4F3_BtdTgReBnXWmQ",
+            authDomain: "lob37bsm.firebaseapp.com",
+            projectId: "lob37bsm",
+            storageBucket: "lob37bsm.firebasestorage.app",
+            messagingSenderId: "102848023390",
+            appId: "1:102848023390:web:c181ff51da70a0a5494d90"
+        };
+
+        // Initialiser Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
         class BookingApp {
             constructor() {
                 this.currentDate = new Date();
                 this.selectedRoom = null;
-                this.reservations = this.loadReservations();
+                this.reservations = [];
                 this.isSelecting = false;
                 this.selectionStart = null;
                 this.selectionEnd = null;
                 this.timeSlots = this.generateTimeSlots();
-                console.log('App initialized');
+                this.initFirebaseListener();
+                console.log('App initialized with Firebase');
+            }
+
+            // Écouter les changements en temps réel
+            initFirebaseListener() {
+                db.collection('reservations').onSnapshot((snapshot) => {
+                    this.reservations = [];
+                    snapshot.forEach((doc) => {
+                        this.reservations.push({ id: doc.id, ...doc.data() });
+                    });
+                    console.log('Réservations mises à jour:', this.reservations.length);
+                    if (this.selectedRoom) {
+                        this.renderCalendar();
+                    }
+                });
             }
 
             generateTimeSlots() {
@@ -1037,7 +1070,7 @@
                 this.reservationToCancel = reservation;
                 
                 let roomName;
-                switch(this.selectedRoom) {
+                switch(reservation.room) {
                     case 'salle-0': roomName = 'Salle 0 (RDC)'; break;
                     case 'bubble-0': roomName = 'Bubble 0 (RDC)'; break;
                     case 'salle-1': roomName = 'Salle 1 (1er étage)'; break;
@@ -1060,19 +1093,16 @@
                 this.reservationToCancel = null;
             }
 
-            confirmCancellation() {
+            async confirmCancellation() {
                 if (this.reservationToCancel) {
                     console.log('Confirmation d\'annulation:', this.reservationToCancel.id);
                     
-                    const beforeCount = this.reservations.length;
-                    this.reservations = this.reservations.filter(res => res.id !== this.reservationToCancel.id);
-                    const afterCount = this.reservations.length;
-                    
-                    if (beforeCount > afterCount) {
-                        this.saveReservations();
-                        this.renderCalendar();
+                    try {
+                        // Supprimer de Firebase
+                        await db.collection('reservations').doc(this.reservationToCancel.id).delete();
                         this.showNotification('Réservation annulée avec succès', 'success');
-                    } else {
+                    } catch (error) {
+                        console.error('Erreur lors de l\'annulation:', error);
                         this.showNotification('Erreur lors de l\'annulation', 'error');
                     }
                     
@@ -1188,7 +1218,7 @@
                 this.clearSelection();
             }
 
-            handleBooking(event) {
+            async handleBooking(event) {
                 event.preventDefault();
                 console.log('Handling booking submission');
                 
@@ -1209,30 +1239,35 @@
                 const end = Math.max(this.selectionStart, this.selectionEnd);
                 
                 const reservation = {
-                    id: Date.now().toString(),
                     name,
                     room: this.selectedRoom,
                     date: this.currentDate.toISOString().split('T')[0],
                     startTime: this.timeSlots[start],
-                    endTime: this.timeSlots[end + 1] || '20:00'
+                    endTime: this.timeSlots[end + 1] || '20:00',
+                    createdAt: firebase.firestore.Timestamp.now()
                 };
 
                 console.log('Creating reservation:', reservation);
 
-                this.reservations.push(reservation);
-                this.saveReservations();
-                this.renderCalendar();
-                this.closeModal();
+                try {
+                    // Sauvegarder dans Firebase
+                    await db.collection('reservations').add(reservation);
+                    
+                    this.closeModal();
 
-                let roomDisplayName;
-                switch(this.selectedRoom) {
-                    case 'salle-0': roomDisplayName = 'Salle 0'; break;
-                    case 'bubble-0': roomDisplayName = 'Bubble 0'; break;
-                    case 'salle-1': roomDisplayName = 'Salle 1'; break;
-                    case 'kitchen': roomDisplayName = 'Kitchen'; break;
-                    default: roomDisplayName = 'la salle';
+                    let roomDisplayName;
+                    switch(this.selectedRoom) {
+                        case 'salle-0': roomDisplayName = 'Salle 0'; break;
+                        case 'bubble-0': roomDisplayName = 'Bubble 0'; break;
+                        case 'salle-1': roomDisplayName = 'Salle 1'; break;
+                        case 'kitchen': roomDisplayName = 'Kitchen'; break;
+                        default: roomDisplayName = 'la salle';
+                    }
+                    this.showNotification(`Réservation confirmée pour ${roomDisplayName}`, 'success');
+                } catch (error) {
+                    console.error('Erreur lors de la sauvegarde:', error);
+                    this.showNotification('Erreur lors de la réservation', 'error');
                 }
-                this.showNotification(`Réservation confirmée pour ${roomDisplayName}`, 'success');
             }
 
             cancelReservation(reservationId) {
@@ -1256,13 +1291,14 @@
                 }
             }
 
+            // Fonctions obsolètes remplacées par Firebase
             loadReservations() {
-                const saved = localStorage.getItem('lesOmbresReservations');
-                return saved ? JSON.parse(saved) : [];
+                // Plus utilisé - Firebase gère maintenant les données
+                return [];
             }
 
             saveReservations() {
-                localStorage.setItem('lesOmbresReservations', JSON.stringify(this.reservations));
+                // Plus utilisé - Firebase gère maintenant les données
             }
 
             showNotification(message, type) {
